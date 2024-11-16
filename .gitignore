@@ -1,0 +1,14 @@
+*.asv
+*.m~
+*.fig
+*.mex*
+*.log
+.DS_Store
+Thumbs.db
+*.mat
+*.mlx
+*.autosave
+*.slxc
+
+
+
