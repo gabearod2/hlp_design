@@ -306,11 +306,17 @@ for i= 1:length(aoas)
     L_increased(i,1) = N_hlp*sum(L_inc_hlps) + N_tip*L_inc_tip;
 end
 
+Ls_filter_index = abs(L_increased)<150;
+L_increased = L_increased(Ls_filter_index);
+aoas_ex = aoas(Ls_filter_index);
+
 % Getting polynomial
 % Fit a smoothing spline to the pitch distribution
-smoothing_factor = 0.001; % Adjust between 0 (very smooth) to 1 (exact fit)
-spline_fit = fit(aoas(:), L_increased(:), 'smoothingspline', 'SmoothingParam', smoothing_factor);
-Ls_spline = feval(spline_fit, aoas);
+smoothing_factor = 0.95; % Adjust between 0 (very smooth) to 1 (exact fit)
+spline_fit = fit(aoas_ex(:), L_increased(:), 'smoothingspline', 'SmoothingParam', smoothing_factor);
+Ls_spline = feval(spline_fit, aoas_ex);
+
+
 
 %% Plotting  and Printing all Results
 
@@ -325,7 +331,7 @@ coefficients_table = table(coeff_indices, round(Ts_tots_func', 3), ...
 disp(coefficients_table);
 
 figure;
-plot(aoas, L_increased, aoas, Ls_spline);
+plot(aoas_ex, L_increased, aoas_ex, Ls_spline);
 
 %Colors
 dark_red = [0.6, 0, 0];    
