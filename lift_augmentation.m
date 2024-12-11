@@ -56,7 +56,7 @@ space = (b_wing-fus_width)/N_hlp;                       % ft
 
 %% Using Momentum Theory for  High Lift Prop Sizing
 
-% Distributing 1/8 of engine power to the HLP's
+% Distributing necessary power to the hlp's
 P_hlp = 14.08073*550;                               % ft*lbf/sec per prop
 T_hlp_req = (T_req_TO * (1/8))/N_hlp;               % lbf per prop
 
@@ -69,7 +69,7 @@ coeffs = [A B C D];
 
 % Solving for High Lift Prop Radius 
 A_p_hlp = real(max(roots(coeffs)));                  % ft^2
-r_p_hlp = (sqrt(4*A_p_hlp/pi)/2)/0.85;               % ft, scale factor
+r_p_hlp = (sqrt(4*A_p_hlp/pi)/2)/0.75;               % ft, scale factor
 
 %% Using Momentum Theory for Wing Tip Prop Sizing
 
@@ -95,14 +95,14 @@ Beta_tip = atand(P_G_tip/2/pi/r_p_tip);             % Expected Pitch Angle
 
 %% Fixed Pitch Thrust Model - Tip Propellers
 
-eta_opt = 0.75;
+eta_tip = 0.70;
 A_p_tip = pi*r_p_tip^2;
 A_spinner_tip = pi*d_spinner_tip^2/4;
-T_static = Kp_tip*(P_tip)^(2/3)* ...
+T_static = Kp_tip*(P_tip*0.75)^(2/3)* ...
     (2*rho_model*A_p_tip)^(1/3)*(1-A_spinner_tip/A_p_tip);
-V_opt = (V_TO+V_cruise)/2.5*1.68781;
-T_opt = eta_opt*P_tip/V_opt;
-V_opt = (V_TO+V_cruise)/2;
+V_opt = (V_TO+V_cruise)/1.85*1.68781;
+T_opt = eta_tip*P_tip/V_opt;
+V_opt = (V_TO+V_cruise)/1.85;
 A_Vs = (T_static-2*T_opt)/V_opt^2;
 B_Vs = (3*T_opt-2*T_static)/V_opt;
 C_Vs = T_static;
@@ -190,9 +190,6 @@ T_per_prop_hlp = trapz(rs_hlp, dTs_actual);
 T_total_hlp = T_per_prop_hlp*N_hlp;
 eta_p_hlp = T_total_hlp*V_inf/550/P_hlp;
 
-% solving for total thrust
-T_total = T_total_hlp + T_total_tip;
-
 %% Fixed Pitch Thrust Model - High Lift Propellers
 
 n = motor_RPM_hlp/60;
@@ -235,7 +232,7 @@ for els = 1:length(rs_hlp)
         cs_hlp(1,els), cd_dis_hlp(els), cl_dis_hlp(els));
 end
 
-%% Determining Expected Lift Increase From Surrogate Model
+%% Determining Expected Lift Increase From Surrogate Model - TakeOff
 
 % Positions of props and chord @ locations
 y_tip = b_wing/2; %ft
@@ -255,7 +252,7 @@ C_3 = [0.997936, -0.916118, 0.199829, 0.157810, -0.143368 , -0.057385];
 C_4 = [-0.127645, 0.135543, -0.028919, -0.026546, 0.010470,  0.012221];
 
 % high lift propeller parameters
-i_p_hlp = -3;         % degrees - incidence angle of the propeller
+i_p_hlp = -5;         % degrees - incidence angle of the propeller
 aoa = 2.625;          % degrees - angle of attack
 aoas = linspace(-15, 30, 1000); % degrees - angle of attack
 V_p_hlp = mean(V_ps);           % ft/s - mean prop induced velocity
@@ -293,7 +290,7 @@ Beta_tip = C_0*X + C_1*X*(R_tip/C_tip) + C_2*X*(R_tip/C_tip)^2 + ...
 
 % Finding the lift augmentation at each angle of attack
 L_inc_hlps = zeros(1,N_hlp/2);
-L_increased = zeros(length(aoas),1);
+L_increased_TO = zeros(length(aoas),1);
 for i= 1:length(aoas)
     for r = 1:N_hlp/2
         L_inc_hlps(1,r) = (1 - (Betas_hlp(r)*V_p_hlp*sind(i_p_hlp)) / (V_inf*sind(aoas(i))+0.1)) * ...
@@ -303,25 +300,117 @@ for i= 1:length(aoas)
     L_inc_tip = (1 - (Beta_tip*V_p_tip*sind(i_p_tip)) / (V_inf*sind(aoas(i))+0.1)) * ...
                 sqrt(V_inf^2+2*V_inf.*Beta_tip*V_p_tip*cosd(aoas(i)+i_p_tip)+(Beta_tip*V_p_tip)^2) ...
                 /V_inf - 1;
-    L_increased(i,1) = N_hlp*sum(L_inc_hlps) + N_tip*L_inc_tip;
+    L_increased_TO(i,1) = N_hlp*sum(L_inc_hlps) + N_tip*L_inc_tip;
 end
 
-Ls_filter_index = abs(L_increased)<150;
-L_increased = L_increased(Ls_filter_index);
-aoas_ex = aoas(Ls_filter_index);
+Ls_filter_index = abs(L_increased_TO)<150;
+L_increased_TO = L_increased_TO(Ls_filter_index);
+aoas_TO = aoas(Ls_filter_index);
 
-% Getting polynomial
 % Fit a smoothing spline to the pitch distribution
-smoothing_factor = 0.95; % Adjust between 0 (very smooth) to 1 (exact fit)
-spline_fit = fit(aoas_ex(:), L_increased(:), 'smoothingspline', 'SmoothingParam', smoothing_factor);
-Ls_spline = feval(spline_fit, aoas_ex);
+smoothing_factor = 0.95; % 0, very smooth to 1, exact fit
+spline_fit = fit(aoas_TO(:), L_increased_TO(:), 'smoothingspline', ...
+    'SmoothingParam', smoothing_factor);
+Ls_spline_TO = feval(spline_fit, aoas_TO);
 
+% Exporting L_increased vs. aoa data, TakeOff
+data_to_export = table(aoas_TO(:), Ls_spline_TO(:), 'VariableNames', ...
+    {'AOA', 'Lift_Augmentation_Percentage'});
+writetable(data_to_export, 'lift_augmentation_data_TO.csv');
+disp('Data exported successfully to lift_augmentation_data_TO.csv');
 
+%% Determining Expected Lift Increase From Surrogate Model - Cruise
+
+% Updating speed
+V_inf = V_cruise*1.68781;
+
+% Finding Beta for each hlp prop
+Betas_hlp = zeros(N_hlp/2,1);
+for n = 1:N_hlp/2
+    C = cs_hlp_pos(n,1); % ft - chord length
+    X  = [1; 
+        (u_hlp/C); 
+        (u_hlp/C)^2; 
+        (u_hlp/C)*(V_j_hlp/V_inf); 
+        (V_j_hlp/V_inf); 
+        (V_j_hlp/V_inf)^2];
+    Betas_hlp(n,1) = C_0*X + C_1*X*(R_hlp/C) + C_2*X*(R_hlp/C)^2 + ...
+        C_3*X*(R_hlp/C)^3 + C_4*X*(R_hlp/C)^4;
+end
+
+% Finding the lift augmentation at each angle of attack
+L_inc_hlps = zeros(1,N_hlp/2);
+L_increased_C = zeros(length(aoas),1);
+for i= 1:length(aoas)
+    for r = 1:N_hlp/2
+        L_inc_hlps(1,r) = (1 - (Betas_hlp(r)*V_p_hlp*sind(i_p_hlp)) / (V_inf*sind(aoas(i))+0.1)) * ...
+                sqrt(V_inf^2+2*V_inf.*Betas_hlp(r)*V_p_hlp*cosd(aoas(i)+i_p_hlp)+(Betas_hlp(r)*V_p_hlp)^2) ...
+                /V_inf - 1;
+    end
+    L_inc_tip = (1 - (Beta_tip*V_p_tip*sind(i_p_tip)) / (V_inf*sind(aoas(i))+0.1)) * ...
+                sqrt(V_inf^2+2*V_inf.*Beta_tip*V_p_tip*cosd(aoas(i)+i_p_tip)+(Beta_tip*V_p_tip)^2) ...
+                /V_inf - 1;
+    L_increased_C(i,1) = N_hlp*sum(L_inc_hlps) + N_tip*L_inc_tip;
+end
+
+Ls_filter_index = abs(L_increased_C)<150;
+L_increased_C = L_increased_C(Ls_filter_index);
+aoas_C = aoas(Ls_filter_index);
+
+% Fit a smoothing spline to the pitch distribution
+smoothing_factor = 0.95; % 0, very smooth to 1, exact fit
+spline_fit = fit(aoas_C(:), L_increased_C(:), 'smoothingspline', 'SmoothingParam', smoothing_factor);
+Ls_spline_C = feval(spline_fit, aoas_C);
+
+% Exporting L_increased vs. aoa data, Cruise
+data_to_export = table(aoas_C(:), Ls_spline_C(:), 'VariableNames', ...
+    {'AOA', 'Lift_Augmentation_Percentage'});
+writetable(data_to_export, 'lift_augmentation_data_C.csv');
+disp('Data exported successfully to lift_augmentation_data_C.csv');
+
+%% Thrust vs. Altitude
+
+max_Ts_alt = zeros(serv_ceiling,1);
+eta_tips = linspace(0.75, 0, serv_ceiling);
+%eta_hlps = linspace(0.75, 0.2, serv_ceiling);
+
+for r = 1:length(hs)
+    eta_tip = eta_tips(r);
+    T_static = Kp_tip*(P_tip)^(2/3)* ...
+        (2*rhos(r)*A_p_tip)^(1/3)*(1-A_spinner_tip/A_p_tip);
+    V_opt = (V_TO+V_cruise)/1.85*1.68781;
+    T_opt = eta_tip*P_tip/V_opt;
+    V_opt = (V_TO+V_cruise)/1.85;
+    A_Vs = (T_static-2*T_opt)/V_opt^2;
+    B_Vs = (3*T_opt-2*T_static)/V_opt;
+    C_Vs = T_static;
+    Vs = linspace(0, V_cruise + 50);
+    Ts_tip_alt = A_Vs.*Vs.^2 + B_Vs.*Vs + C_Vs;
+    T_static = Kp_hlp*(P_hlp)^(2/3)* ...
+         (2*rhos(r)*A_p_hlp)^(1/3)*(1-A_spinner_hlp/A_p_hlp);
+    V_opt = V_inf;
+    %eta_hlp = eta_hlps(r);
+    T_opt = eta_hlp*P_hlp/V_opt;
+    V_opt = V_TO;
+    A_Vs_hlp = (T_static-2*T_opt)/V_opt^2;
+    B_Vs_hlp = (3*T_opt-2*T_static)/V_opt;
+    C_Vs_hlp = T_static;
+    Ts_hlp_alt = A_Vs_hlp.*Vs.^2 + B_Vs_hlp.*Vs + C_Vs_hlp;
+    pos_indices = Ts_hlp_alt > 0; 
+    Ts_hlp_alt = Ts_hlp_alt(pos_indices);  
+    Vs_hlp_alt = Vs(pos_indices); 
+    T_tots_alt = Ts_tip_alt*N_tip;
+    for i = 1:length(Vs_hlp_alt)
+        T_tots_alt(1,i) = Ts_hlp_alt(1,i)*N_hlp + Ts_tip_alt(1+i)*N_tip;
+    end
+    max_Ts_alt(r) = max(T_tots_alt);
+end
 
 %% Plotting  and Printing all Results
 
 % Print total lift increase
 %fprintf('Total Lift Increase Percentage = %.2f%%\n\n', L_increased);
+
 
 % Print table of thrust model coefficients
 degree = length(Ts_tots_func) - 1;
@@ -331,21 +420,32 @@ coefficients_table = table(coeff_indices, round(Ts_tots_func', 3), ...
 disp(coefficients_table);
 
 figure;
-plot(aoas_ex, L_increased, aoas_ex, Ls_spline);
+plot(aoas_TO, L_increased_TO, aoas_TO, Ls_spline_TO,aoas_C, L_increased_C, aoas_C, Ls_spline_C);
 
 %Colors
 dark_red = [0.6, 0, 0];    
 dark_blue = [0, 0, 0.6];
-light_green = [153, 199, 4] / 255;
+light_green = [0, 0, 139] / 255;
 dark_green = [62, 104, 62] / 255;
+
+% plotting thrust model
+figure;
+plot(hs/1000, max_Ts_alt, 'Color', dark_red, 'LineWidth', 1.5)
+ylim([1800 2200])
+xlim([0 10])
+xlabel('Altitude [1000 ft]', 'Interpreter','latex')
+ylabel('Maximum Thrust [lbf]', 'Interpreter','latex')
+title('Thrust Model, All Propellers', 'Interpreter','latex')
+grid on
+exportgraphics(gcf, 'thrust_hs.jpeg', 'Resolution',600);
 
 % plotting thrust model
 figure;
 plot(Vs,N_tip*Ts_tip, 'Color', dark_red, 'LineWidth', 1.5)
 hold on
 plot(Vs_hlp,N_hlp*Ts_hlp,  'Color', dark_blue, 'LineWidth', 1.5)
-plot(Vs,T_tots, '-', 'Color', light_green, 'LineWidth', 1.5)
-plot(Vs,T_fit, '--', 'Color', dark_green, 'LineWidth', 1.5)
+plot(Vs,T_tots, 'k--', 'LineWidth', 1.5)
+plot(Vs,T_fit, '-', 'Color', dark_green, 'LineWidth', 1.5)
 legend({'$T_{tips}$', '$T_{HLPs}$','$T_{tot}$','$T_{polyfit}$'}, ...
     'Interpreter', 'latex');
 ylim([0 2500])
@@ -354,6 +454,7 @@ xlabel('Velocities [KTAS]', 'Interpreter','latex')
 ylabel('Thrust [lbf]', 'Interpreter','latex')
 title('Thrust Model, All Propellers', 'Interpreter','latex')
 grid on
+exportgraphics(gcf, 'thrust.jpeg', 'Resolution',600);
 
 % plotting the theoretical vel profile
 figure;
@@ -371,11 +472,11 @@ figure;
 yyaxis left;
 ax = gca;
 ax.YColor = light_green; 
-plot(rs_hlp/r_p_hlp, pitch_dis, 'Color', light_green, 'LineWidth', 1.5);
+plot(rs_hlp/r_p_hlp, pitch_dis,'--', 'Color', light_green, 'LineWidth', 1.5);
 hold on 
-plot(rs_hlp/r_p_hlp, pitch_dis_spline, 'Color', dark_red, 'LineWidth', 1.5);
+plot(rs_hlp/r_p_hlp, pitch_dis_spline,'-', 'Color', light_green, 'LineWidth', 1.5);
 ylabel('Pitch Distribution, $\beta$ [$^\circ$]', 'Interpreter', 'latex');
-% ylim([0 90]);
+ylim([0 80]);
 yyaxis right;
 ax = gca;
 ax.YColor = dark_green; 
@@ -386,7 +487,8 @@ ylim([0 1]);
 title('High Lift Propeller Design', 'Interpreter', 'latex');
 xlabel('Normalized Radial Position, $r_{i}$/$r_{p}$ [1]', ...
     'Interpreter', 'latex');
-% xlim([0 1]);
-legend({'$\beta$ [$^\circ$]', '$c_{p}/r_{p}$ [1]'}, ...
-    'Interpreter', 'latex');
+xlim([0.1 1]);
+legend({'$\beta$ [$^\circ$]', '$\beta_{smoothed}$ [$^\circ$]', ...
+    '$c_{p}/r_{p}$ [1]'}, 'Interpreter', 'latex');
 grid on;
+exportgraphics(ax, 'hlp.jpeg', 'Resolution',600);
